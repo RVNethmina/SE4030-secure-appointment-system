@@ -10,12 +10,13 @@ import {
 } from "../controllers/UserController.js";
 import authUser from "../middleware/authUser.js";
 import upload from "../middleware/multer.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 
 
 const useRouter = express.Router();
 
-useRouter.post("/register", registerUser);
-useRouter.post("/login", loginUser);
+useRouter.post("/register", authLimiter, registerUser);
+useRouter.post("/login", authLimiter, loginUser);
 useRouter.post(
   "/update-profile",
   upload.single("image"),
