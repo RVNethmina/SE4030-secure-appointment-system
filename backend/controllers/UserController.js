@@ -31,9 +31,21 @@ const registerUser = async (req, res) => {
       return res.json({ success: false, message: "Enter a Valid Email!" });
     }
 
-    //validating strong password
-    if (password.length < 8) {
-      return res.json({ success: false, message: "Enter a Strong Password!" });
+    //validating strong password: min length + upper/lower/number/symbol
+    if (
+      !validator.isStrongPassword(password, {
+        minLength: 8,
+        minLowercase: 1,
+        minUppercase: 1,
+        minNumbers: 1,
+        minSymbols: 1,
+      })
+    ) {
+      return res.json({
+        success: false,
+        message:
+          "Weak password: use at least 8 characters with upper- and lower-case letters, a number and a symbol.",
+      });
     }
 
     //Hasing user password
@@ -224,8 +236,11 @@ const cancelAppointment = async (req, res) => {
 
     const appointmentData = await appointmentModel.findById(appointmentId);
 
-    //verify appointment user
-    if (appointmentData.userId !== userId) {
+    // Object-level authorisation: the appointment must belong to the caller.
+    // String()-coerce both sides so an ObjectId vs string mismatch cannot make
+    // the check pass or wrongly fail (IDOR — CWE-639). Also guard the not-found
+    // case so we don't dereference null.
+    if (!appointmentData || String(appointmentData.userId) !== String(userId)) {
       return res.json({ success: false, message: "Unauthorised Action!" });
     }
 

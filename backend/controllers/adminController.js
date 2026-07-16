@@ -61,11 +61,20 @@ const addDoctor = async (req, res) => {
       });
     }
 
-    //validate strong password
-    if (password.length < 8) {
+    //validate strong password: min length + upper/lower/number/symbol
+    if (
+      !validator.isStrongPassword(password, {
+        minLength: 8,
+        minLowercase: 1,
+        minUppercase: 1,
+        minNumbers: 1,
+        minSymbols: 1,
+      })
+    ) {
       return res.json({
         success: false,
-        message: "Please enter a strong password",
+        message:
+          "Weak password: use at least 8 characters with upper- and lower-case letters, a number and a symbol.",
       });
     }
 
