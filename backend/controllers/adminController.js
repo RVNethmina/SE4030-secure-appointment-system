@@ -1,11 +1,21 @@
 // API for adding doctor
 import validator from "validator";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
 import doctorModel from "../models/doctorModel.js";
-import jwt from "jsonwebtoken";
+import { signAccessToken } from "../utils/token.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import userModel from "../models/userModel.js";
+
+// Constant-time string comparison to avoid leaking the admin credentials via
+// response-timing side channels (CWE-208).
+const safeEqual = (a, b) => {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+};
 
 const addDoctor = async (req, res) => {
   try {
@@ -103,18 +113,29 @@ const loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (
-      email === process.env.ADMIN_EMAIL &&
-      password === process.env.ADMIN_PASSWORD
-    ) {
-      const token = jwt.sign(email + password, process.env.JWT_SECRET);
-      res.json({ success: true, token });
-    } else {
-      res.json({ succes: false, message: "Invalid Credentials!" });
+    if (typeof email !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid Credentials!" });
     }
+
+    const emailOk = safeEqual(email, process.env.ADMIN_EMAIL);
+    const passOk = safeEqual(password, process.env.ADMIN_PASSWORD);
+
+    if (emailOk && passOk) {
+      // Sign a proper token carrying a role claim + expiry — never the raw
+      // credential string.
+      const token = signAccessToken({ role: "admin", email });
+      return res.json({ success: true, token });
+    }
+
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid Credentials!" });
   } catch (error) {
-    console.log(error);
-    res.json({ success: false, message: error.message });
+    return res
+      .status(500)
+      .json({ success: false, message: "Login failed, please try again." });
   }
 };
 
