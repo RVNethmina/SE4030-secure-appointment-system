@@ -1,0 +1,33 @@
+# Dependencies (must NOT be committed — supply-chain/bloat)
+node_modules/
+**/node_modules/
+
+# Secrets / environment (must NOT be committed)
+.env
+**/.env
+!**/.env.example
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Uploads (runtime user content)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+desktop.ini
+*.suo
+*.sw?
