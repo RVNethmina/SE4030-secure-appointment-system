@@ -34,6 +34,12 @@ const doctorList = async (req, res) => {
 const loginDoctor = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Reject non-string inputs to prevent NoSQL operator injection (CWE-943).
+    if (typeof email !== "string" || typeof password !== "string") {
+      return res.json({ success: false, message: "Invalid Credentials!" });
+    }
+
     const doctor = await doctorModel.findOne({ email });
 
     if (!doctor) {

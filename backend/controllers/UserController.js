@@ -16,6 +16,16 @@ const registerUser = async (req, res) => {
       return res.json({ success: false, message: "Missing Details!" });
     }
 
+    // Reject non-string inputs so an object like { "$ne": null } can never reach
+    // a Mongo query (NoSQL injection — CWE-943).
+    if (
+      typeof name !== "string" ||
+      typeof email !== "string" ||
+      typeof password !== "string"
+    ) {
+      return res.json({ success: false, message: "Invalid input." });
+    }
+
     //validating email format
     if (!validator.isEmail(email)) {
       return res.json({ success: false, message: "Enter a Valid Email!" });
@@ -54,10 +64,17 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Enforce string inputs: without this, { "email": { "$ne": null } } would
+    // match the first user in the collection (NoSQL injection — CWE-943).
+    if (typeof email !== "string" || typeof password !== "string") {
+      return res.json({ success: false, message: "Invalid Credentials!" });
+    }
+
     const user = await userModel.findOne({ email });
 
     if (!user) {
-      return res.json({ success: false, message: "User doesn't exit" });
+      return res.json({ success: false, message: "Invalid Credentials!" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
