@@ -3,11 +3,30 @@ import { AppContext } from '../context/AppContext'
 import axios from 'axios'
 import { toast } from 'react-toastify'
 import { useNavigate } from 'react-router-dom'
+import { GoogleLogin } from '@react-oauth/google'
 
 const Login = () => {
 
-  const { backendUrl, token, setToken } = useContext(AppContext) 
+  const { backendUrl, token, setToken } = useContext(AppContext)
   const navigate = useNavigate()
+
+  // Send the Google ID token (OpenID Connect credential) to our backend, which
+  // verifies it with Google and returns our own app session token.
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      const { data } = await axios.post(backendUrl + '/api/user/auth/google', {
+        credential: credentialResponse.credential,
+      })
+      if (data.success) {
+        localStorage.setItem('token', data.token)
+        setToken(data.token)
+      } else {
+        toast.error(data.message)
+      }
+    } catch (error) {
+      toast.error('Google sign-in failed. Please try again.')
+    }
+  }
 
   const [state,setState] = useState('Sign Up')
 
@@ -90,8 +109,22 @@ const Login = () => {
         </div>
 
         <button type='submit' className="w-full py-2 text-base text-white rounded-md bg-primary">
-          {state === 'Sign Up' ? "Create Account" : "Log In"}    
+          {state === 'Sign Up' ? "Create Account" : "Log In"}
         </button>
+
+        <div className="flex items-center w-full gap-2 my-1 text-xs text-zinc-400">
+          <div className="flex-1 h-px bg-zinc-200"></div>
+          <span>OR</span>
+          <div className="flex-1 h-px bg-zinc-200"></div>
+        </div>
+
+        <div className="flex justify-center w-full">
+          <GoogleLogin
+            onSuccess={handleGoogleSuccess}
+            onError={() => toast.error('Google sign-in failed. Please try again.')}
+            useOneTap={false}
+          />
+        </div>
 
         {
           state === 'Sign Up'

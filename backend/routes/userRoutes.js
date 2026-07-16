@@ -11,12 +11,15 @@ import {
 import authUser from "../middleware/authUser.js";
 import upload from "../middleware/multer.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
+import { googleAuth } from "../controllers/authController.js";
 
 
 const useRouter = express.Router();
 
 useRouter.post("/register", authLimiter, registerUser);
 useRouter.post("/login", authLimiter, loginUser);
+// Google OpenID Connect sign-in
+useRouter.post("/auth/google", authLimiter, googleAuth);
 useRouter.post(
   "/update-profile",
   upload.single("image"),
