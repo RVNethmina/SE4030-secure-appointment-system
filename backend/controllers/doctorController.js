@@ -1,6 +1,8 @@
 import doctorModel from "../models/doctorModel.js";
 import { signAccessToken } from "../utils/token.js";
 import { verifyPassword } from "../utils/password.js";
+import { isObjectId } from "../utils/validation.js";
+import { releaseDoctorSlot } from "../utils/slots.js";
 import appointmentModel from "../models/AppointmentModel.js";
 
 const changeAvailability = async (req, res) => {
@@ -81,10 +83,19 @@ const appointmentComplete = async (req, res) => {
   try {
     const { docId } = req.auth;
     const { appointmentId } = req.body;
-    const appointmentData = await appointmentModel.findById(appointmentId);
 
-    if (appointmentData && appointmentData.docId === docId) {
-      await appointmentModel.findByIdAndUpdate(appointmentId, {isCompleted: true});
+    if (!isObjectId(appointmentId)) {
+      return res.status(400).json({ success: false, message: "Mark failed!" });
+    }
+
+    // Ownership + state in one atomic filter: a doctor can only complete their
+    // own, still-active appointments (a cancelled one can't become completed).
+    const updated = await appointmentModel.findOneAndUpdate(
+      { _id: appointmentId, docId, cancelled: false, isCompleted: false },
+      { isCompleted: true }
+    );
+
+    if (updated) {
       return res.json({ success: true, message: "Appointment Completed!" });
     } else {
       return res.json({ success: false, message: "Mark failed!" });
@@ -100,13 +111,23 @@ const appointmentCancel = async (req, res) => {
   try {
     const { docId } = req.auth;
     const { appointmentId } = req.body;
-    const appointmentData = await appointmentModel.findById(appointmentId);
 
-    if (appointmentData && appointmentData.docId === docId) {
-      await appointmentModel.findByIdAndUpdate(appointmentId, {cancelled: true });
+    if (!isObjectId(appointmentId)) {
+      return res.status(400).json({ success: false, message: "Cancellation failed!" });
+    }
+
+    const updated = await appointmentModel.findOneAndUpdate(
+      { _id: appointmentId, docId, cancelled: false, isCompleted: false },
+      { cancelled: true }
+    );
+
+    if (updated) {
+      // Previously a doctor cancellation never released the slot, so it stayed
+      // blocked for every other patient.
+      await releaseDoctorSlot(updated);
       return res.json({ success: true, message: "Appointment Cancelled!" });
     } else {
-      return res.json({ success: false, message: "Cancellationfailed!" });
+      return res.json({ success: false, message: "Cancellation failed!" });
     }
   } catch (error) {
     console.error(error);

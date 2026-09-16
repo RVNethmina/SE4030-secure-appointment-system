@@ -8,6 +8,8 @@ import { signAccessToken } from "../utils/token.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import userModel from "../models/userModel.js";
 import { removeUploadedFile } from "../middleware/multer.js";
+import { isObjectId } from "../utils/validation.js";
+import { releaseDoctorSlot } from "../utils/slots.js";
 
 // Constant-time string comparison to avoid leaking the admin credentials via
 // response-timing side channels (CWE-208). Both values are hashed first so the
@@ -198,25 +200,24 @@ const appointmentCancel = async (req, res) => {
   try {
     const { appointmentId } = req.body;
 
-    const appointmentData = await appointmentModel.findById(appointmentId);
+    if (!isObjectId(appointmentId)) {
+      return res.status(400).json({ success: false, message: "Invalid appointment." });
+    }
 
-    //cancel appointment
-    await appointmentModel.findByIdAndUpdate(appointmentId, {
-      cancelled: true,
-    });
-
-    //releasing cancelled doctor slot
-    const { docId, slotDate, slotTime } = appointmentData;
-
-    const doctorData = await doctorModel.findById(docId);
-
-    let slots_booked = doctorData.slots_booked;
-
-    slots_booked[slotDate] = slots_booked[slotDate].filter(
-      (e) => e !== slotTime
+    // Atomic state transition: a missing, already-cancelled or completed
+    // appointment is refused instead of crashing on null or releasing a slot
+    // a second time.
+    const appointmentData = await appointmentModel.findOneAndUpdate(
+      { _id: appointmentId, cancelled: false, isCompleted: false },
+      { cancelled: true }
     );
 
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    if (!appointmentData) {
+      return res.json({ success: false, message: "Appointment can no longer be cancelled!" });
+    }
+
+    //releasing cancelled doctor slot
+    await releaseDoctorSlot(appointmentData);
 
     res.json({ success: true, message: "Appointment Cancelled!" });
   } catch (error) {

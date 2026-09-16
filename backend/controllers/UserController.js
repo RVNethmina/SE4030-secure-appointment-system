@@ -8,6 +8,8 @@ import appointmentModel from "../models/AppointmentModel.js";
 import razorpay from "razorpay";
 import { removeUploadedFile } from "../middleware/multer.js";
 import { verifyPassword } from "../utils/password.js";
+import { isObjectId, isValidSlotDate, isValidSlotTime } from "../utils/validation.js";
+import { reserveDoctorSlot, releaseDoctorSlot } from "../utils/slots.js";
 
 // API to register user
 const registerUser = async (req, res) => {
@@ -162,42 +164,52 @@ const updateProfile = async (req, res) => {
 //API to book appointment
 
 const bookAppointment = async (req, res) => {
+  let reservation = null;
   try {
     //get data from the request
     const { userId } = req.auth;
     const { docId, slotDate, slotTime } = req.body;
 
-    //find the doctor
-    const docData = await doctorModel.findById(docId).select("-password");
-
-    //doctor is not available sending response
-    if (!docData.available) {
-      return res.json({ success: false, message: "Doctor not Available!" });
+    // Validate before any query: a non-ObjectId docId used to crash with a
+    // 500, and unchecked slotDate/slotTime strings were used as keys inside
+    // doctor.slots_booked (past dates, "__proto__", arbitrary junk).
+    if (!isObjectId(docId) || !isValidSlotDate(slotDate) || !isValidSlotTime(slotTime)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid booking details." });
     }
 
-    //create copy of slots_booked data if doctor available
-    let slots_booked = docData.slots_booked;
+    //getting user data (only the fields the doctor/admin views need)
+    const userData = await userModel
+      .findById(userId)
+      .select("name image address gender dob phone")
+      .lean();
 
-    //checking for slots availability for this date and this time
-    if (slots_booked[slotDate]) {
-      if (slots_booked[slotDate].includes(slotTime)) {
-        return res.json({ success: false, message: "Slot not Available!" });
-      } else {
-        //book that slot
-        slots_booked[slotDate].push(slotTime);
+    if (!userData) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Not Authorised, Login again!" });
+    }
+
+    // Check-and-book in ONE atomic update. The old code read slots_booked,
+    // checked it in JS and wrote the whole object back later, so two
+    // concurrent requests could both book the same slot (CWE-362).
+    const docData = await reserveDoctorSlot(docId, slotDate, slotTime);
+
+    if (!docData) {
+      const doctor = await doctorModel.findById(docId).select("available").lean();
+      if (!doctor) {
+        return res.status(404).json({ success: false, message: "Doctor not found!" });
       }
-    } else {
-      slots_booked[slotDate] = [];
-      slots_booked[slotDate].push(slotTime);
+      if (!doctor.available) {
+        return res.json({ success: false, message: "Doctor not Available!" });
+      }
+      return res.json({ success: false, message: "Slot not Available!" });
     }
+    reservation = { docId, slotDate, slotTime };
 
-    //getting user data
-    const userData = await userModel.findById(userId).select("-password");
-
-    //deleting slots_booked data from the doctor data because we have to save this data in appintment data
-    delete docData.slots_booked;
-
-    const appointmentData = {
+    //save appointment in the database
+    await appointmentModel.create({
       userId,
       docId,
       userData,
@@ -206,18 +218,14 @@ const bookAppointment = async (req, res) => {
       slotTime,
       slotDate,
       date: Date.now(),
-    };
-
-    //save appointment in the database
-    const newAppointment = new appointmentModel(appointmentData);
-    await newAppointment.save();
-
-    //save new slots data in doctors docData
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    });
+    reservation = null;
 
     res.json({ success: true, message: "Appointment Booked!" });
   } catch (error) {
     console.error(error);
+    // Don't leave a slot blocked if the appointment could not be stored.
+    if (reservation) await releaseDoctorSlot(reservation).catch(() => {});
     res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
   }
 };
@@ -241,6 +249,10 @@ const cancelAppointment = async (req, res) => {
     const { userId } = req.auth;
     const { appointmentId } = req.body;
 
+    if (!isObjectId(appointmentId)) {
+      return res.status(400).json({ success: false, message: "Unauthorised Action!" });
+    }
+
     const appointmentData = await appointmentModel.findById(appointmentId);
 
     // Object-level authorisation: the appointment must belong to the caller.
@@ -251,23 +263,20 @@ const cancelAppointment = async (req, res) => {
       return res.json({ success: false, message: "Unauthorised Action!" });
     }
 
-    //cancel appointment
-    await appointmentModel.findByIdAndUpdate(appointmentId, {
-      cancelled: true,
-    });
-
-    //releasing cancelled doctor slot
-    const { docId, slotDate, slotTime } = appointmentData;
-
-    const doctorData = await doctorModel.findById(docId);
-
-    let slots_booked = doctorData.slots_booked;
-
-    slots_booked[slotDate] = slots_booked[slotDate].filter(
-      (e) => e !== slotTime
+    // Only an active appointment can be cancelled. The state change is atomic
+    // so repeated/concurrent cancels cannot release the slot twice, and a
+    // completed appointment can no longer be flipped to cancelled.
+    const cancelled = await appointmentModel.findOneAndUpdate(
+      { _id: appointmentId, cancelled: false, isCompleted: false },
+      { cancelled: true }
     );
 
-    await doctorModel.findByIdAndUpdate(docId, { slots_booked });
+    if (!cancelled) {
+      return res.json({ success: false, message: "Appointment can no longer be cancelled!" });
+    }
+
+    //releasing cancelled doctor slot
+    await releaseDoctorSlot(appointmentData);
 
     res.json({ success: true, message: "Appointment Cancelled!" });
   } catch (error) {
