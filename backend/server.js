@@ -10,11 +10,14 @@ import adminRouter from './routes/adminRoute.js'
 import doctorRouter from './routes/doctorRoute.js'
 import useRouter from './routes/userRoutes.js'
 import { assertJwtSecret } from './utils/token.js'
+import { assertAdminCredentials } from './controllers/adminController.js'
 import { apiLimiter } from './middleware/rateLimiter.js'
 
 // Fail fast at boot if the JWT signing secret is missing or weak, instead of
 // silently issuing forgeable tokens (the original shipped JWT_SECRET='RBRO').
 assertJwtSecret()
+// Same for the bootstrap admin credential (the original was 'qwerty123').
+assertAdminCredentials()
 
 //app config
 const app = express()

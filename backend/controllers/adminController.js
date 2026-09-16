@@ -10,13 +10,31 @@ import userModel from "../models/userModel.js";
 import { removeUploadedFile } from "../middleware/multer.js";
 
 // Constant-time string comparison to avoid leaking the admin credentials via
-// response-timing side channels (CWE-208).
+// response-timing side channels (CWE-208). Both values are hashed first so the
+// comparison always runs over equal-length buffers; the previous early return
+// on a length mismatch leaked the length of the admin password.
 const safeEqual = (a, b) => {
-  const ab = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+  const ah = crypto.createHash("sha256").update(String(a)).digest();
+  const bh = crypto.createHash("sha256").update(String(b)).digest();
+  return crypto.timingSafeEqual(ah, bh);
 };
+
+// Fail fast at boot on a missing or weak bootstrap admin credential. The
+// original shipped ADMIN_PASSWORD='qwerty123', and the admin role can add
+// doctors and read every patient's appointments.
+export function assertAdminCredentials() {
+  const email = process.env.ADMIN_EMAIL || "";
+  const password = process.env.ADMIN_PASSWORD || "";
+  if (
+    !validator.isEmail(email) ||
+    !validator.isStrongPassword(password, { minLength: 12 })
+  ) {
+    throw new Error(
+      "ADMIN_EMAIL must be a valid email and ADMIN_PASSWORD must be at least " +
+        "12 characters with upper- and lower-case letters, a number and a symbol."
+    );
+  }
+}
 
 const addDoctor = async (req, res) => {
   try {
