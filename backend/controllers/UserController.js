@@ -7,6 +7,7 @@ import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import razorpay from "razorpay";
 import { removeUploadedFile } from "../middleware/multer.js";
+import { verifyPassword } from "../utils/password.js";
 
 // API to register user
 const registerUser = async (req, res) => {
@@ -86,13 +87,12 @@ const loginUser = async (req, res) => {
 
     const user = await userModel.findOne({ email });
 
-    if (!user) {
-      return res.json({ success: false, message: "Invalid Credentials!" });
-    }
+    // Always run one bcrypt comparison: unknown emails and Google-only
+    // accounts (no local password) now fail exactly like a wrong password,
+    // instead of returning early (timing oracle) or throwing a 500.
+    const isMatch = await verifyPassword(password, user?.password);
 
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (isMatch) {
+    if (user && isMatch) {
       const token = signAccessToken({ id: user._id, role: "user" });
       res.json({ success: true, token });
     } else {

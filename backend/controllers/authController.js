@@ -53,8 +53,17 @@ const googleAuth = async (req, res) => {
       user = await userModel.findOne({ email });
       if (user) {
         // Link Google to the pre-existing local account.
+        //
+        // Account pre-hijacking defence: local sign-up never proves ownership
+        // of the email address, so an attacker can register the victim's
+        // address first and keep the password after the real owner signs in
+        // with Google. Google has now verified ownership, so drop the
+        // unverified local password and revoke every session issued before
+        // this moment. The owner keeps access through Google sign-in.
         user.googleId = googleId;
-        if (user.authProvider === "local") user.authProvider = "google";
+        user.authProvider = "google";
+        user.password = undefined;
+        user.sessionsValidAfter = Math.floor(Date.now() / 1000);
         await user.save();
       } else {
         // Provision a new Google-backed account (no local password).
