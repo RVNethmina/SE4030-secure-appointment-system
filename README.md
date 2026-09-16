@@ -8,14 +8,12 @@ OpenID Connect sign-in feature.
 
 ## Group Members
 
-> ⚠️ **TODO – fill in real names and index numbers before submission.**
-
 | # | Name | Index Number |
 |---|------|--------------|
-| 1 | Ravindu Nethmina | *TODO* |
-| 2 | *TODO* | *TODO* |
-| 3 | *TODO* | *TODO* |
-| 4 | *TODO* | *TODO* |
+| 1 | Nethmina W.P.R. | IT22253958 |
+| 2 | Appuhami M.N.H. | IT22140852 |
+| 3 | Madurapperuma H.A.S.I. | IT22230942 |
+| 4 | Aron Charles J. | IT22203380 |
 
 ## Links
 
@@ -86,7 +84,7 @@ fixed newly disclosed advisories and moved multer to 2.x.
 | Issue | Reason | Recommendation |
 |-------|--------|----------------|
 | Leaked credentials remain in the **original** repository's history | Rotation is an operational action in the MongoDB Atlas / Cloudinary / Razorpay dashboards, not a code change | Rotate every leaked key; purge history with `git filter-repo` |
-| JWTs stored in `localStorage` (readable by any XSS) | Moving to `httpOnly` cookies needs CSRF tokens and CORS/credential changes in all three apps | `httpOnly` + `SameSite` cookies with CSRF protection, and a CSP on the React apps |
+| JWTs stored in `localStorage` (readable by any XSS) | Moving to `httpOnly` cookies needs CSRF tokens and CORS/credential changes in all three apps. Partly mitigated: the Docker nginx images send a strict Content-Security-Policy (no inline or third-party scripts except Google sign-in and Razorpay) | `httpOnly` + `SameSite` cookies with CSRF protection |
 | No logout endpoint / refresh-token rotation | Account-wide revocation now exists (`sessionsValidAfter`), but per-token revocation needs a token store | Short-lived access tokens + rotating refresh tokens + denylist |
 | No email verification for local sign-up | Needs an email provider; the Google-linking takeover path is already closed | Verify email ownership before activating local accounts |
 | Admin is a single env credential without MFA | Needs a DB-backed admin model and an MFA flow | Admin accounts in the database with bcrypt hashes, RBAC and TOTP/WebAuthn |
@@ -103,12 +101,63 @@ backend/    Node.js + Express + MongoDB (Mongoose) REST API
   app.js      Express app (middleware, routes, error handler)
   server.js   loads .env, boot-time secret checks, DB connection, listen
   tests/      security regression tests (node:test + supertest)
+  Dockerfile  non-root Node 22 Alpine image
 frontend/   React + Vite patient-facing app (has the Google sign-in)
-admin/      React + Vite admin & doctor panel
+  Dockerfile  Vite build served by unprivileged nginx (nginx.conf: CSP, /api proxy)
+admin/      React + Vite admin & doctor panel (same Docker layout)
+docker-compose.yml   MongoDB + API + both web apps
 .github/    CI security pipeline, CodeQL and Dependabot
 ```
 
-## Running locally
+## Running with Docker (recommended)
+
+Prerequisites: Docker Desktop (or Docker Engine) with Compose v2.
+
+```bash
+# 1. Compose variables: MongoDB container credentials and host ports
+cp .env.example .env
+#    set MONGO_ROOT_PASSWORD to a random hex string, e.g.
+node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
+
+# 2. API secrets (JWT_SECRET, ADMIN_EMAIL/ADMIN_PASSWORD, Cloudinary, Google)
+cp backend/.env.example backend/.env
+
+# 3. Build the images and start the containers
+docker compose up -d --build
+docker compose ps          # wait until all four services are "healthy"
+```
+
+| Service | URL / exposure | Image |
+|---------|----------------|-------|
+| Patient app | http://localhost:5173 | `prescripto-frontend` (nginx, serves the SPA, proxies `/api`) |
+| Admin & doctor panel | http://localhost:5174 | `prescripto-admin` (nginx, serves the SPA, proxies `/api`) |
+| API | internal only (`backend:4000`) | `prescripto-backend` (Node 22 Alpine) |
+| MongoDB | internal only (`mongo:27017`), data in the `mongo-data` volume | `mongo:7` |
+
+- Stop the Vite dev servers first if they are running: the containers use the
+  same ports 5173/5174 (so the Google OAuth origin `http://localhost:5173` and
+  the CORS allow-list work unchanged). Change them with `FRONTEND_PORT` /
+  `ADMIN_PORT` in `.env`.
+- Compose overrides `MONGODB_URI`, `ALLOWED_ORIGINS`, `PORT` and
+  `TRUST_PROXY=1` from `backend/.env`, so the API uses the MongoDB container.
+- `VITE_GOOGLE_CLIENT_ID` in `.env` is baked into the patient app at build
+  time; run `docker compose up -d --build frontend` after changing it.
+- Adding doctors (image upload) needs real Cloudinary keys in `backend/.env`.
+- Stop with `docker compose down` (add `-v` to also delete the database volume).
+
+Container security:
+- The API and MongoDB publish no host ports; browsers reach the API only through
+  nginx, which overwrites `X-Forwarded-For`, so rate limits see the real client IP.
+- Every app container runs as a non-root user with a read-only root filesystem,
+  all Linux capabilities dropped and `no-new-privileges`; only `/tmp` and the
+  upload temp directory are writable (tmpfs).
+- MongoDB requires authentication; secrets come from git-ignored `.env` files
+  and are never copied into images (`.dockerignore`).
+- nginx adds Content-Security-Policy, X-Frame-Options, nosniff,
+  Referrer-Policy and Permissions-Policy headers and hides its version.
+- Health checks gate start-up order (MongoDB → API → web apps).
+
+## Running locally (without Docker)
 
 Prerequisites: Node.js 20+, a MongoDB (Atlas or local), a Cloudinary account,
 and a Google OAuth 2.0 Client ID.
@@ -192,5 +241,7 @@ in-process with the data layer stubbed.
   account linking (no pre-hijacking).
 - Atomic slot booking/cancellation and validated, whitelisted profile updates.
 - No secrets or PII in browser consoles; clients drop expired sessions.
+- Docker: non-root, read-only, capability-free containers; API and database
+  not exposed; CSP and security headers from nginx.
 - CI: security tests, `npm audit --audit-level=high`, gitleaks, CodeQL,
   Dependabot.
