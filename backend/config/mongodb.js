@@ -7,7 +7,11 @@ const connectDB = async () => {
   );
 
   try {
-    await mongoose.connect(`${process.env.MONGODB_URI}/prescripto`, {
+    // Select the database with dbName instead of appending "/prescripto" to the
+    // URI, so connection strings with options (e.g. ?authSource=admin for an
+    // authenticated MongoDB container) keep working.
+    await mongoose.connect(process.env.MONGODB_URI, {
+      dbName: "prescripto",
       serverSelectionTimeoutMS: 5000,
     });
   } catch (err) {
