@@ -22,9 +22,14 @@ const port = process.env.PORT || 4000
 connectDB()
 connectCloudinary()
 
-// Trust the first proxy hop so express-rate-limit sees the real client IP
-// when deployed behind a reverse proxy / load balancer.
-app.set('trust proxy', 1)
+// Only trust X-Forwarded-For when the API really sits behind a reverse proxy.
+// Trusting it unconditionally let any client pick its own "IP" per request
+// and walk straight past the login rate limiter (CWE-348). Set TRUST_PROXY to
+// the number of proxy hops (e.g. 1) in production behind a load balancer.
+const trustProxy = process.env.TRUST_PROXY
+if (trustProxy) {
+  app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy)
+}
 
 //middlewares
 // Cap request body size to blunt large-payload DoS (was unlimited).
