@@ -1,0 +1,9 @@
+# Keep secrets, local installs and build output out of the build context.
+node_modules
+dist
+npm-debug.log*
+.env
+.env.*
+!.env.example
+Dockerfile
+.dockerignore

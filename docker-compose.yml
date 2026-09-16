@@ -1,0 +1,87 @@
+# Full stack: MongoDB + API + patient app + admin/doctor panel.
+#
+#   cp .env.example .env                    # compose variables (Mongo credentials, ports)
+#   cp backend/.env.example backend/.env    # API secrets (JWT, admin, Cloudinary, Google)
+#   docker compose up -d --build
+#
+# Patient app: http://localhost:5173   Admin panel: http://localhost:5174
+name: prescripto
+
+# Shared container hardening for the app services.
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+    volumes:
+      - mongo-data:/data/db
+    # No published port: only containers on this network (the API) can connect.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    <<: *hardening
+    build: ./backend
+    image: prescripto-backend:latest
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      PORT: "4000"
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://localhost:${ADMIN_PORT:-5174}
+      # Every request arrives through exactly one nginx hop, which overwrites
+      # X-Forwarded-For with the real client address.
+      TRUST_PROXY: "1"
+    tmpfs:
+      - /app/uploads:uid=1000,gid=1000,mode=0700
+      - /tmp
+    depends_on:
+      mongo:
+        condition: service_healthy
+    # No published port: the API is only reachable through the two nginx
+    # proxies, so clients cannot bypass them to forge X-Forwarded-For.
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      args:
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: prescripto-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5173}:8080"
+    tmpfs:
+      - /tmp
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  admin:
+    <<: *hardening
+    build: ./admin
+    image: prescripto-admin:latest
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-5174}:8080"
+    tmpfs:
+      - /tmp
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
