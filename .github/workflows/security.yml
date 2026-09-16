@@ -76,6 +76,6 @@ jobs:
           fetch-depth: 0
       # Scans the commits in each push / pull request for credentials, so a
       # committed .env (vulnerability #1 in the report) fails the pipeline.
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
