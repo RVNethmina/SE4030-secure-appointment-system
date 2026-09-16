@@ -224,7 +224,7 @@ in-process with the data layer stubbed.
 
 ## Security controls added (quick reference)
 
-- `helmet` security headers, `express-mongo-sanitize`, 1 MB body cap.
+- `helmet` security headers, `express-mongo-sanitize`, explicit 100 kB body cap.
 - CORS restricted to an `ALLOWED_ORIGINS` allow-list.
 - `express-rate-limit` on all auth endpoints; `X-Forwarded-For` trusted only
   when `TRUST_PROXY` is set.
