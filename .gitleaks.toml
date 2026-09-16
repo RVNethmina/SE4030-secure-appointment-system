@@ -1,0 +1,11 @@
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentionally fake credentials used by tests and env templates"
+paths = [
+  '''^backend/tests/''',
+  '''\.env\.example$''',
+]
