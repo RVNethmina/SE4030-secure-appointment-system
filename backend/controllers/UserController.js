@@ -6,6 +6,7 @@ import { v2 as cloudinary } from "cloudinary";
 import doctorModel from "../models/doctorModel.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import razorpay from "razorpay";
+import { removeUploadedFile } from "../middleware/multer.js";
 
 // API to register user
 const registerUser = async (req, res) => {
@@ -152,6 +153,9 @@ const updateProfile = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+  } finally {
+    // The image now lives on Cloudinary; never leave the temp copy on disk.
+    await removeUploadedFile(req.file);
   }
 };
 

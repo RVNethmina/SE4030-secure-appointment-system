@@ -9,7 +9,7 @@ import {
   cancelAppointment,
 } from "../controllers/UserController.js";
 import authUser from "../middleware/authUser.js";
-import upload from "../middleware/multer.js";
+import upload, { verifyImageSignature } from "../middleware/multer.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { googleAuth } from "../controllers/authController.js";
 
@@ -20,10 +20,13 @@ useRouter.post("/register", authLimiter, registerUser);
 useRouter.post("/login", authLimiter, loginUser);
 // Google OpenID Connect sign-in
 useRouter.post("/auth/google", authLimiter, googleAuth);
+// authUser MUST run before multer: otherwise anonymous clients can write files
+// to the server's disk before authentication is ever checked.
 useRouter.post(
   "/update-profile",
-  upload.single("image"),
   authUser,
+  upload.single("image"),
+  verifyImageSignature,
   updateProfile
 );
 useRouter.post("/book-appointment", authUser, bookAppointment);

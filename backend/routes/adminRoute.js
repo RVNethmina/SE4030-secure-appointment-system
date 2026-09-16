@@ -7,15 +7,21 @@ import {
   appointmentCancel,
   adminDashboard,
 } from "../controllers/adminController.js";
-import upload from "../middleware/multer.js"; // Correct path to your multer middleware
+import upload, { verifyImageSignature } from "../middleware/multer.js";
 import authAdmin from "../middleware/authAdmin.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { changeAvailability } from "../controllers/doctorController.js";
 
 const adminRouter = express.Router();
 
-// Use the middleware before your controller
-adminRouter.post("/add-doctor", authAdmin, upload.single("image"), addDoctor);
+// Authenticate first, then accept the upload, then verify it is a real image.
+adminRouter.post(
+  "/add-doctor",
+  authAdmin,
+  upload.single("image"),
+  verifyImageSignature,
+  addDoctor
+);
 adminRouter.post("/login", authLimiter, loginAdmin);
 adminRouter.post("/all-doctors", authAdmin, allDoctors);
 adminRouter.post("/change-availability", authAdmin, changeAvailability);

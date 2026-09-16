@@ -1,4 +1,5 @@
 import express from 'express'
+import multer from 'multer'
 import cors from 'cors'
 import helmet from 'helmet'
 import mongoSanitize from 'express-mongo-sanitize'
@@ -73,6 +74,11 @@ app.get('/', (req, res) => {
 app.use((err, req, res, next) => {
   if (err && err.message === 'Not allowed by CORS') {
     return res.status(403).json({ success: false, message: 'Origin not allowed.' })
+  }
+  // Upload validation problems (size/count limits, disallowed type) are client
+  // errors with safe, generic messages: report them as 400, not 500.
+  if (err instanceof multer.MulterError || err?.expose) {
+    return res.status(err.status || 400).json({ success: false, message: err.message })
   }
   console.error('[unhandled error]', err?.message)
   res.status(500).json({ success: false, message: 'Internal server error.' })

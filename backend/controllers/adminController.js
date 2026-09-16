@@ -7,6 +7,7 @@ import doctorModel from "../models/doctorModel.js";
 import { signAccessToken } from "../utils/token.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import userModel from "../models/userModel.js";
+import { removeUploadedFile } from "../middleware/multer.js";
 
 // Constant-time string comparison to avoid leaking the admin credentials via
 // response-timing side channels (CWE-208).
@@ -107,10 +108,13 @@ const addDoctor = async (req, res) => {
     await newDoctor.save();
 
     res.json({ success: true, message: "Doctor Added!" });
-    
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: "Something went wrong. Please try again." });
+  } finally {
+    // Remove the temp upload on every path (validation failures included).
+    await removeUploadedFile(req.file);
   }
 };
 
