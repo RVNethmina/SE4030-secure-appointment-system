@@ -1,6 +1,7 @@
 import { createContext, useEffect, useState } from "react";
 import axios from 'axios'
 import { toast } from 'react-toastify'
+import { onSessionRejected } from '../utils/authInterceptor'
 
 
 export const AppContext = createContext()
@@ -62,6 +63,14 @@ const AppContextProvider = (props) => {
 
     }
 
+
+    // An expired or revoked JWT used to stay in localStorage forever: API calls
+    // kept failing and the login page redirected the "logged-in" user away, so
+    // they could not sign in again. Clear the session on any 401.
+    onSessionRejected('token', ()=>{
+        localStorage.removeItem('token')
+        setToken(false)
+    })
 
     useEffect(()=>{
         getDoctorsData()

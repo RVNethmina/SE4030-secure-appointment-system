@@ -1,6 +1,7 @@
 import { createContext, useState } from "react";
 import axios from 'axios'
 import { toast } from 'react-toastify'
+import { onSessionRejected } from '../utils/authInterceptor'
 
 export const DoctorContext = createContext()
 
@@ -11,6 +12,13 @@ const DoctorContextProvider = (props) => {
     const [appointments,setAppointments] = useState([])
     const [dashData,setDashData] = useState(false)
     const [profileData,setProfileData] = useState(false)
+
+    // Drop an expired/revoked doctor token so the panel returns to the login
+    // screen instead of failing every request with a stale session.
+    onSessionRejected('dToken', ()=>{
+        localStorage.removeItem('dToken')
+        setDToken('')
+    })
 
     //-------------------------------------------------
 

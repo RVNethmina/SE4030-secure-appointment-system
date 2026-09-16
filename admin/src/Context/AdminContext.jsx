@@ -1,6 +1,7 @@
 import { createContext, useState } from "react";
 import axios from 'axios'
 import { toast } from 'react-toastify'
+import { onSessionRejected } from '../utils/authInterceptor'
 
 export const AdminContext = createContext()
 
@@ -13,6 +14,12 @@ const AdminContextProvider = (props) => {
 
     const backendUrl = import.meta.env.VITE_BACKEND_URL
 
+    // Drop an expired/revoked admin token so the panel returns to the login
+    // screen instead of failing every request with a stale session.
+    onSessionRejected('aToken', ()=>{
+        localStorage.removeItem('aToken')
+        setAToken('')
+    })
 
     //-----------------------------------
 
