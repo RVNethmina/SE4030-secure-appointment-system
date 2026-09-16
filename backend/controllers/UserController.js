@@ -8,7 +8,16 @@ import appointmentModel from "../models/AppointmentModel.js";
 import razorpay from "razorpay";
 import { removeUploadedFile } from "../middleware/multer.js";
 import { verifyPassword } from "../utils/password.js";
-import { isObjectId, isValidSlotDate, isValidSlotTime } from "../utils/validation.js";
+import {
+  GENDERS,
+  isBoundedString,
+  isObjectId,
+  isValidDob,
+  isValidPhone,
+  isValidSlotDate,
+  isValidSlotTime,
+  parseAddress,
+} from "../utils/validation.js";
 import { reserveDoctorSlot, releaseDoctorSlot } from "../utils/slots.js";
 
 // API to register user
@@ -133,10 +142,26 @@ const updateProfile = async (req, res) => {
       return res.json({ success: false, message: "Data Missing!" });
     }
 
+    // Validate every field before it is stored. Previously the address was
+    // JSON.parse()d unchecked (malformed JSON -> 500, arbitrary nested objects
+    // stored) and name/phone/dob/gender accepted any value (CWE-20).
+    const parsedAddress = parseAddress(address);
+    if (
+      !isBoundedString(name, 100) ||
+      !isValidPhone(phone) ||
+      !isValidDob(dob) ||
+      !GENDERS.includes(gender) ||
+      !parsedAddress
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid profile details." });
+    }
+
     await userModel.findByIdAndUpdate(userId, {
-      name,
+      name: name.trim(),
       phone,
-      address: JSON.parse(address),
+      address: parsedAddress,
       dob,
       gender,
     });

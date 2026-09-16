@@ -8,7 +8,12 @@ import { signAccessToken } from "../utils/token.js";
 import appointmentModel from "../models/AppointmentModel.js";
 import userModel from "../models/userModel.js";
 import { removeUploadedFile } from "../middleware/multer.js";
-import { isObjectId } from "../utils/validation.js";
+import {
+  isBoundedString,
+  isObjectId,
+  parseAddress,
+  parseFees,
+} from "../utils/validation.js";
 import { releaseDoctorSlot } from "../utils/slots.js";
 
 // Constant-time string comparison to avoid leaking the admin credentials via
@@ -74,6 +79,27 @@ const addDoctor = async (req, res) => {
       return res.json({ success: false, message: "Image file is required" });
     }
 
+    // Type/length-check every field and parse fees/address safely. validator
+    // throws on non-strings and JSON.parse on malformed input, which both
+    // surfaced as 500s; fees and address were stored without any checks.
+    const parsedFees = parseFees(fees);
+    const parsedAddress = parseAddress(address);
+    if (
+      !isBoundedString(name, 100) ||
+      !isBoundedString(email, 254) ||
+      !isBoundedString(password, 128) ||
+      !isBoundedString(speciality, 60) ||
+      !isBoundedString(degree, 100) ||
+      !isBoundedString(experience, 30) ||
+      !isBoundedString(about, 2000) ||
+      parsedFees === null ||
+      !parsedAddress
+    ) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid doctor details." });
+    }
+
     //validating email format
     if (!validator.isEmail(email)) {
       return res.json({
@@ -119,8 +145,8 @@ const addDoctor = async (req, res) => {
       degree,
       experience,
       about,
-      fees,
-      address: JSON.parse(address),
+      fees: parsedFees,
+      address: parsedAddress,
       date: Date.now(),
     };
 
