@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 
 /**
@@ -43,6 +44,31 @@ export function signAccessToken(payload) {
 
 export function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+}
+
+// Nonce tokens for Google sign-in are signed with a key derived from
+// JWT_SECRET for this single purpose, so a nonce token can never be accepted
+// as an access token (or the other way round).
+const nonceSigningKey = () =>
+  crypto.createHmac("sha256", JWT_SECRET).update("google-oidc-nonce").digest();
+
+const NONCE_TOKEN_LIFETIME = "10m";
+
+/**
+ * Wrap a freshly generated OpenID Connect nonce in a short-lived signed token
+ * with a unique id (jti) so the server can check it statelessly and allow it
+ * to be used only once.
+ */
+export function signNonceToken(nonce) {
+  return jwt.sign({ nonce }, nonceSigningKey(), {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: NONCE_TOKEN_LIFETIME,
+    jwtid: crypto.randomUUID(),
+  });
+}
+
+export function verifyNonceToken(token) {
+  return jwt.verify(token, nonceSigningKey(), { algorithms: [JWT_ALGORITHM] });
 }
 
 /**

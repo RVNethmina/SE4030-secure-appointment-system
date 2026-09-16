@@ -11,14 +11,15 @@ import {
 import authUser from "../middleware/authUser.js";
 import upload, { verifyImageSignature } from "../middleware/multer.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
-import { googleAuth } from "../controllers/authController.js";
+import { googleAuth, googleNonce } from "../controllers/authController.js";
 
 
 const useRouter = express.Router();
 
 useRouter.post("/register", authLimiter, registerUser);
 useRouter.post("/login", authLimiter, loginUser);
-// Google OpenID Connect sign-in
+// Google OpenID Connect sign-in: get a one-time nonce, then exchange the ID token
+useRouter.get("/auth/google/nonce", googleNonce);
 useRouter.post("/auth/google", authLimiter, googleAuth);
 // authUser MUST run before multer: otherwise anonymous clients can write files
 // to the server's disk before authentication is ever checked.

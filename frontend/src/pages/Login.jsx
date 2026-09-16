@@ -10,12 +10,31 @@ const Login = () => {
   const { backendUrl, token, setToken } = useContext(AppContext)
   const navigate = useNavigate()
 
+  // One-time OpenID Connect nonce issued by our backend. Google embeds it in
+  // the ID token, and the backend only accepts an ID token carrying the nonce
+  // it issued (replay / token-injection protection).
+  const [googleNonce, setGoogleNonce] = useState(null)
+
+  const loadGoogleNonce = async () => {
+    try {
+      const { data } = await axios.get(backendUrl + '/api/user/auth/google/nonce')
+      setGoogleNonce(data.success ? { nonce: data.nonce, nonceToken: data.nonceToken } : null)
+    } catch {
+      setGoogleNonce(null)
+    }
+  }
+
+  useEffect(() => {
+    loadGoogleNonce()
+  }, [])
+
   // Send the Google ID token (OpenID Connect credential) to our backend, which
   // verifies it with Google and returns our own app session token.
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
       const { data } = await axios.post(backendUrl + '/api/user/auth/google', {
         credential: credentialResponse.credential,
+        nonceToken: googleNonce?.nonceToken,
       })
       if (data.success) {
         localStorage.setItem('token', data.token)
@@ -25,6 +44,9 @@ const Login = () => {
       }
     } catch (error) {
       toast.error('Google sign-in failed. Please try again.')
+    } finally {
+      // A nonce is single-use: fetch a fresh one for any further attempt.
+      loadGoogleNonce()
     }
   }
 
@@ -119,11 +141,17 @@ const Login = () => {
         </div>
 
         <div className="flex justify-center w-full">
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => toast.error('Google sign-in failed. Please try again.')}
-            useOneTap={false}
-          />
+          {/* Rendered only once a nonce exists; keyed by it so the button is
+              re-initialised with each new single-use nonce. */}
+          {googleNonce && (
+            <GoogleLogin
+              key={googleNonce.nonce}
+              nonce={googleNonce.nonce}
+              onSuccess={handleGoogleSuccess}
+              onError={() => toast.error('Google sign-in failed. Please try again.')}
+              useOneTap={false}
+            />
+          )}
         </div>
 
         {
