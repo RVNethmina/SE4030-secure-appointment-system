@@ -15,6 +15,11 @@ import jwt from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "1d";
 
+// Pin the signing algorithm. Verification only accepts HS256, so a token
+// re-signed with "none" or any other algorithm is rejected outright
+// (algorithm-confusion attacks, CWE-347).
+const JWT_ALGORITHM = "HS256";
+
 // Fail fast on a weak/missing secret rather than silently accepting forgeable tokens.
 export function assertJwtSecret() {
   if (!JWT_SECRET || JWT_SECRET.length < 32) {
@@ -30,11 +35,14 @@ export function assertJwtSecret() {
  * claims such as the subject id and role.
  */
 export function signAccessToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+  return jwt.sign(payload, JWT_SECRET, {
+    algorithm: JWT_ALGORITHM,
+    expiresIn: JWT_EXPIRES_IN,
+  });
 }
 
 export function verifyToken(token) {
-  return jwt.verify(token, JWT_SECRET);
+  return jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
 }
 
 /**

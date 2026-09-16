@@ -13,16 +13,17 @@ const authDoctor = async (req, res, next) => {
 
     const token_decode = verifyToken(dtoken);
 
-    // Reject any token that is not a doctor token (e.g. a user/admin token).
-    if (token_decode.role && token_decode.role !== "doctor") {
+    // Require an explicit doctor role. The previous check only rejected tokens
+    // that carried a *different* role, so any token without a role claim was
+    // accepted as a doctor session (CWE-863).
+    if (token_decode.role !== "doctor" || !token_decode.id) {
       return res
         .status(403)
         .json({ success: false, message: "Not Authorised for the doctor panel." });
     }
 
     // Identity comes ONLY from the verified token, never from the request body.
-    req.auth = { docId: token_decode.id };
-    req.body.docId = token_decode.id;
+    req.auth = { docId: String(token_decode.id), role: "doctor" };
 
     next();
   } catch (error) {

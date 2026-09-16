@@ -65,8 +65,8 @@ const loginDoctor = async (req, res) => {
 
 const appointmentsDoctor = async (req, res) => {
   try {
-    //get docid
-    const { docId } = req.body;
+    //get docid from the verified doctor token
+    const { docId } = req.auth;
 
     //find appointments for this relevent doctor
     const appointments = await appointmentModel.find({ docId });
@@ -82,7 +82,8 @@ const appointmentsDoctor = async (req, res) => {
 //API to mark appointments completed for doctor panel
 const appointmentComplete = async (req, res) => {
   try {
-    const { docId, appointmentId } = req.body;
+    const { docId } = req.auth;
+    const { appointmentId } = req.body;
     const appointmentData = await appointmentModel.findById(appointmentId);
 
     if (appointmentData && appointmentData.docId === docId) {
@@ -100,7 +101,8 @@ const appointmentComplete = async (req, res) => {
 //API to cancel appointments for doctor panel
 const appointmentCancel = async (req, res) => {
   try {
-    const { docId, appointmentId } = req.body;
+    const { docId } = req.auth;
+    const { appointmentId } = req.body;
     const appointmentData = await appointmentModel.findById(appointmentId);
 
     if (appointmentData && appointmentData.docId === docId) {
@@ -121,7 +123,7 @@ const doctorDashboard = async (req,res) => {
   
   try {
 
-    const { docId } = req.body
+    const { docId } = req.auth
     const appointments = await appointmentModel.find({docId})
 
     let earnings = 0
@@ -163,7 +165,7 @@ const doctorProfile = async (req,res) => {
 
   try {
 
-    const {docId} = req.body
+    const {docId} = req.auth
 
     const profileData = await doctorModel.findById(docId).select('-password')
 
@@ -182,7 +184,8 @@ const updateDoctorProfile = async (req,res) => {
   
   try {
 
-    const { docId , fees, address, available} = req.body
+    const { docId } = req.auth
+    const { fees, address, available } = req.body
 
     await doctorModel.findByIdAndUpdate(docId,{fees,address,available})
 
