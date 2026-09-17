@@ -1,4 +1,4 @@
-"""Build the SE4030 security report as an IEEE-style (two-column, A4) PDF.
+"""Build the SE4030 security assessment report as a single-column A4 PDF.
 
 Usage (from the repository root):
     python docs/report/build_report.py
@@ -9,6 +9,7 @@ Requires: reportlab, and the Times New Roman / Courier New TrueType fonts
 
 import math
 import os
+import re
 import sys
 
 from reportlab.graphics.shapes import Drawing, Line, Polygon, PolyLine, Rect, String
@@ -23,9 +24,9 @@ from reportlab.platypus import (
     BaseDocTemplate,
     CondPageBreak,
     Frame,
-    FrameBreak,
     KeepTogether,
     NextPageTemplate,
+    PageBreak,
     PageTemplate,
     Paragraph,
     Preformatted,
@@ -33,6 +34,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.platypus.tableofcontents import TableOfContents
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUTPUT = os.path.join(ROOT, "SE4030_Security_Report.pdf")
@@ -55,63 +57,60 @@ register_family("TNR", ["times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf"]
 register_family("CNR", ["cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf"])
 
 # --------------------------------------------------------------------------
-# Page geometry (IEEE conference template, A4)
+# Page geometry (A4, single column)
 # --------------------------------------------------------------------------
 PAGE_W, PAGE_H = A4
-LM = RM = 14.3 * mm
-TM = 19 * mm
-BM = 22 * mm
-GAP = 4.2 * mm
+LM = RM = 25 * mm
+TM = 25 * mm
+BM = 24 * mm
 FULL_W = PAGE_W - LM - RM
-COL_W = (FULL_W - GAP) / 2
-FOOTNOTE_H = 15 * mm
+COL_W = FULL_W            # tables and listings span the text width
+DIAG_W = 88.6 * mm        # native width of the vector diagrams (scaled on output)
 
 # --------------------------------------------------------------------------
 # Styles
 # --------------------------------------------------------------------------
 BLACK = colors.black
+ACCENT = colors.HexColor("#1F3864")
+RULE = colors.HexColor("#8C8C8C")
+HEAD_BG = colors.HexColor("#DCE3EE")
+
+
+def S(name, **kw):
+    return ParagraphStyle(name, **kw)
+
+
 ST = {
-    "title": ParagraphStyle("title", fontName="TNR", fontSize=22, leading=26, alignment=TA_CENTER),
-    "author": ParagraphStyle("author", fontName="TNR", fontSize=10.5, leading=12.5, alignment=TA_CENTER),
-    "affil": ParagraphStyle("affil", fontName="TNR", fontSize=9, leading=11, alignment=TA_CENTER),
-    "affil_i": ParagraphStyle("affil_i", fontName="TNR-I", fontSize=9, leading=11, alignment=TA_CENTER),
-    "abstract": ParagraphStyle(
-        "abstract", fontName="TNR-B", fontSize=9, leading=10.6, alignment=TA_JUSTIFY,
-        firstLineIndent=10, spaceAfter=5,
-    ),
-    "body": ParagraphStyle(
-        "body", fontName="TNR", fontSize=10, leading=11.6, alignment=TA_JUSTIFY,
-        firstLineIndent=10, allowWidows=0, allowOrphans=0,
-    ),
-    "bullet": ParagraphStyle(
-        "bullet", fontName="TNR", fontSize=10, leading=11.6, alignment=TA_JUSTIFY,
-        leftIndent=13, bulletIndent=4, spaceBefore=1, allowWidows=0, allowOrphans=0,
-        bulletFontName="TNR", bulletFontSize=10,
-    ),
-    "h1": ParagraphStyle(
-        "h1", fontName="TNR", fontSize=10, leading=12, alignment=TA_CENTER,
-        spaceBefore=9, spaceAfter=4, keepWithNext=0,
-    ),
-    "h2": ParagraphStyle(
-        "h2", fontName="TNR-I", fontSize=10, leading=12, alignment=TA_LEFT,
-        spaceBefore=6, spaceAfter=2, keepWithNext=0,
-    ),
-    "cap_tab": ParagraphStyle(
-        "cap_tab", fontName="TNR", fontSize=8, leading=9.6, alignment=TA_CENTER,
-        spaceBefore=7, spaceAfter=3, keepWithNext=1,
-    ),
-    "cap_fig": ParagraphStyle(
-        "cap_fig", fontName="TNR", fontSize=8, leading=9.6, alignment=TA_JUSTIFY,
-        spaceBefore=3, spaceAfter=8,
-    ),
-    "cell": ParagraphStyle("cell", fontName="TNR", fontSize=7.5, leading=8.7, alignment=TA_LEFT),
-    "cell_b": ParagraphStyle("cell_b", fontName="TNR-B", fontSize=7.5, leading=8.7, alignment=TA_LEFT),
-    "code": ParagraphStyle("code", fontName="CNR", fontSize=6.9, leading=8.1),
-    "ref": ParagraphStyle(
-        "ref", fontName="TNR", fontSize=8, leading=9.4, alignment=TA_LEFT,
-        leftIndent=17, bulletIndent=0, spaceAfter=1.5, bulletFontName="TNR", bulletFontSize=8,
-    ),
-    "footnote": ParagraphStyle("footnote", fontName="TNR", fontSize=7.5, leading=8.8, alignment=TA_LEFT),
+    "cover_big": S("cover_big", fontName="TNR-B", fontSize=17, leading=22, alignment=TA_CENTER),
+    "cover_mid": S("cover_mid", fontName="TNR", fontSize=13.5, leading=18, alignment=TA_CENTER),
+    "cover_title": S("cover_title", fontName="TNR-B", fontSize=23, leading=29, alignment=TA_CENTER,
+                     textColor=ACCENT),
+    "cover_sub": S("cover_sub", fontName="TNR-I", fontSize=15, leading=19, alignment=TA_CENTER),
+    "cover_small": S("cover_small", fontName="TNR", fontSize=11, leading=15, alignment=TA_CENTER),
+    "body": S("body", fontName="TNR", fontSize=11.5, leading=15.5, alignment=TA_JUSTIFY,
+              spaceAfter=6, allowWidows=0, allowOrphans=0),
+    "bullet": S("bullet", fontName="TNR", fontSize=11.5, leading=15.5, alignment=TA_JUSTIFY,
+                leftIndent=20, bulletIndent=7, spaceAfter=3, allowWidows=0, allowOrphans=0,
+                bulletFontName="TNR", bulletFontSize=11.5),
+    "h0": S("h0", fontName="TNR-B", fontSize=17, leading=22, spaceAfter=10, textColor=ACCENT),
+    "h1": S("h1", fontName="TNR-B", fontSize=17, leading=22, spaceBefore=14, spaceAfter=8,
+            textColor=ACCENT, keepWithNext=1),
+    "h2": S("h2", fontName="TNR-B", fontSize=13.5, leading=18, spaceBefore=10, spaceAfter=5,
+            textColor=ACCENT, keepWithNext=1),
+    "h3": S("h3", fontName="TNR-B", fontSize=12, leading=16, spaceBefore=10, spaceAfter=5,
+            keepWithNext=1),
+    "cap_tab": S("cap_tab", fontName="TNR-B", fontSize=10.5, leading=13.5, alignment=TA_CENTER,
+                 spaceBefore=8, spaceAfter=4, keepWithNext=1),
+    "cap_fig": S("cap_fig", fontName="TNR-B", fontSize=10.5, leading=13.5, alignment=TA_CENTER,
+                 spaceBefore=4, spaceAfter=10),
+    "cell": S("cell", fontName="TNR", fontSize=10, leading=12.5, alignment=TA_LEFT),
+    "cell_b": S("cell_b", fontName="TNR-B", fontSize=10, leading=12.5, alignment=TA_LEFT),
+    "code": S("code", fontName="CNR", fontSize=9, leading=11),
+    "ref": S("ref", fontName="TNR", fontSize=10.5, leading=13.5, alignment=TA_LEFT,
+             leftIndent=28, bulletIndent=0, spaceAfter=4, bulletFontName="TNR", bulletFontSize=10.5),
+    "toc0": S("toc0", fontName="TNR-B", fontSize=12, leading=17, spaceBefore=5),
+    "toc1": S("toc1", fontName="TNR", fontSize=11.5, leading=15, leftIndent=22),
+    "toc2": S("toc2", fontName="TNR", fontSize=10.5, leading=13.5, leftIndent=48),
 }
 
 
@@ -119,30 +118,13 @@ def esc(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def smallcaps(text, size=10):
-    """Emulate small capitals: lowercase letters become smaller capitals."""
-    small = round(size * 0.8, 1)
-    out, run = [], ""
-    for ch in text:
-        if ch.islower():
-            run += ch
-        else:
-            if run:
-                out.append(f'<font size="{small}">{esc(run.upper())}</font>')
-                run = ""
-            out.append(esc(ch))
-    if run:
-        out.append(f'<font size="{small}">{esc(run.upper())}</font>')
-    return "".join(out)
-
-
 def c(code):
     """Inline code."""
-    return f'<font face="CNR" size="8.6">{esc(code)}</font>'
+    return f'<font face="CNR" size="10">{esc(code)}</font>'
 
 
 # --------------------------------------------------------------------------
-# Citations (IEEE: numbered in order of first citation)
+# Citations (IEEE style: numbered in order of first citation)
 # --------------------------------------------------------------------------
 REFERENCES = {
     "owasp10": "OWASP Foundation, \u201cOWASP Top 10:2021,\u201d 2021. Accessed: Sep. 2026. [Online]. Available: https://owasp.org/Top10/",
@@ -188,33 +170,55 @@ def cite(*keys):
 # Story helpers
 # --------------------------------------------------------------------------
 story = []
-ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"]
-counters = {"section": 0, "sub": 0, "table": 0, "fig": 0, "listing": 0}
+counters = {"section": 0, "sub": 0, "subsub": 0, "table": 0, "fig": 0, "listing": 0}
+
+
+def grid_style(header_rows=1):
+    return TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, RULE),
+        ("BACKGROUND", (0, 0), (-1, header_rows - 1), HEAD_BG),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5),
+    ])
+
+
+def heading(text, style, toc_level):
+    """Add a heading; toc_level None keeps it out of the contents and PDF outline."""
+    para = Paragraph(text, ST[style])
+    para.toc_level = toc_level
+    para.toc_text = re.sub(r"<[^>]+>", "", text).replace("&amp;", "&")
+    para.toc_key = f"heading-{len(story)}"
+    story.append(para)
+
+
+def unnumbered(title, toc=True):
+    heading(esc(title), "h0", 0 if toc else None)
 
 
 def section(title):
     counters["section"] += 1
-    counters["sub"] = 0
-    # Enough room for the heading, a subsection heading and a few lines of text.
-    story.append(CondPageBreak(90))
-    story.append(Paragraph(f"{ROMAN[counters['section'] - 1]}. {smallcaps(title)}", ST["h1"]))
+    counters["sub"] = counters["subsub"] = 0
+    story.append(CondPageBreak(150))
+    heading(f"{counters['section']}. {esc(title)}", "h1", 0)
 
 
 def subsection(title):
     counters["sub"] += 1
-    letter = chr(ord("A") + counters["sub"] - 1)
-    # Headings never end a column: move on unless a few lines fit below them.
-    story.append(CondPageBreak(45))
-    story.append(Paragraph(f"{letter}. {esc(title)}", ST["h2"]))
+    counters["subsub"] = 0
+    story.append(CondPageBreak(110))
+    heading(f"{counters['section']}.{counters['sub']} {esc(title)}", "h2", 1)
+
+
+def subsubsection(title):
+    counters["subsub"] += 1
+    heading(f"{counters['section']}.{counters['sub']}.{counters['subsub']} {esc(title)}", "h3", 2)
 
 
 def p(text):
     story.append(Paragraph(text, ST["body"]))
-
-
-def runin(label, text):
-    """IEEE third-level run-in heading, e.g. '1) Heading: text'."""
-    p(f"<i>{label}:</i> {text}")
 
 
 def bullets(items):
@@ -222,28 +226,68 @@ def bullets(items):
         story.append(Paragraph(item, ST["bullet"], bulletText="\u2022"))
 
 
+# Per-vulnerability facts shown in the info box under each heading:
+# severity, OWASP Top 10:2021 category, CWE ids, owner, fix commit(s).
+NETHMINA, APPUHAMI = "Nethmina W.P.R.", "Appuhami M.N.H."
+MADURAPPERUMA, ARON = "Madurapperuma H.A.S.I.", "Aron Charles J."
+VULN_META = {
+    "V1": ("Critical", "A02, A07", "798, 312", MADURAPPERUMA, "a4d9ef9"),
+    "V2": ("Critical", "A07", "287, 522", NETHMINA, "946d935"),
+    "V3": ("Critical", "A02, A07", "613, 326", NETHMINA, "2030cc2, a21c6cf"),
+    "V4": ("High", "A07", "307", MADURAPPERUMA, "49bda38"),
+    "V5": ("Medium", "A05", "942, 693", MADURAPPERUMA, "58e2ea6"),
+    "V6": ("High", "A03", "943, 204", APPUHAMI, "f8d19da, 9b687ad"),
+    "V7": ("Medium", "A04", "434, 400", APPUHAMI, "9293599, 6ef456b"),
+    "V8": ("Medium", "A09, A04", "532, 209", ARON, "987a6eb"),
+    "V9": ("Medium", "A07", "521", ARON, "511afd4"),
+    "V10": ("High", "A06", "1104", MADURAPPERUMA, "8f987b7, 95994fa"),
+    "V11": ("Medium", "A01", "863, 347", NETHMINA, "a21c6cf"),
+    "V12": ("High", "A04, A07", "306, 434", APPUHAMI, "6ef456b"),
+    "V13": ("High", "A07", "348, 307", MADURAPPERUMA, "c20eba1"),
+    "V14": ("High", "A07", "287, 204, 208", ARON, "9b687ad"),
+    "V15": ("Medium", "A07", "521, 208", NETHMINA, "6a2a8fb"),
+    "V16": ("Medium", "A04", "362, 20, 840", APPUHAMI, "fdca2af"),
+    "V17": ("Medium", "A08", "915, 20", APPUHAMI, "0922e96"),
+    "V18": ("Medium", "A07", "294", ARON, "09ee9fa"),
+    "V19": ("Medium", "A09", "532, 359", ARON, "2775ec8"),
+    "V20": ("Low", "A07", "613", NETHMINA, "33b55e6"),
+}
+
+
+def runin(label, text):
+    """'V1) Title' starts a vulnerability sub-section with its info box;
+    any other label (e.g. 'Remediation') becomes a bold lead-in."""
+    match = re.match(r"(V\d+)\) (.+)", label)
+    if not match:
+        p(f"<b>{label}.</b> {text}")
+        return
+    vid, title = match.groups()
+    severity, owasp, cwe, owner, commits = VULN_META[vid]
+    story.append(CondPageBreak(120))
+    subsubsection(f"{vid}: {title}")
+    header = ["Severity", "OWASP 2021", "CWE", "Owner", "Fix commit(s)"]
+    values = [severity, owasp, ", ".join(f"CWE-{n}" for n in cwe.split(", ")), owner, c(commits)]
+    info = Table([[Paragraph(h, ST["cell_b"]) for h in header],
+                  [Paragraph(v, ST["cell"]) for v in values]],
+                 colWidths=[w * FULL_W for w in (0.14, 0.16, 0.26, 0.24, 0.20)])
+    info.setStyle(grid_style())
+    story.append(info)
+    story.append(Spacer(1, 7))
+    p(f"<b>Description.</b> {text}")
+
+
 def table(caption, header, rows, widths, split=False):
     counters["table"] += 1
-    number = ROMAN[counters["table"] - 1]
-    cap = Paragraph(f"{smallcaps('Table', 8)} {number}<br/>{smallcaps(caption, 8)}", ST["cap_tab"])
+    number = counters["table"]
+    cap = Paragraph(f"Table {number}: {esc(caption)}", ST["cap_tab"])
     data = [[Paragraph(h, ST["cell_b"]) for h in header]]
     data += [[Paragraph(cell, ST["cell"]) for cell in row] for row in rows]
     tbl = Table(data, colWidths=[w * COL_W for w in widths], repeatRows=1, hAlign="CENTER")
-    tbl.setStyle(TableStyle([
-        ("LINEABOVE", (0, 0), (-1, 0), 0.8, BLACK),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.5, BLACK),
-        ("LINEBELOW", (0, -1), (-1, -1), 0.8, BLACK),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ("TOPPADDING", (0, 0), (-1, -1), 1.6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.6),
-    ]))
+    tbl.setStyle(grid_style())
     if split:
-        cap.keepWithNext = 0
-        story.extend([CondPageBreak(110), cap, tbl, Spacer(1, 6)])
+        story.extend([CondPageBreak(160), cap, tbl, Spacer(1, 8)])
     else:
-        story.append(KeepTogether([cap, tbl, Spacer(1, 6)]))
+        story.append(KeepTogether([cap, tbl, Spacer(1, 8)]))
     return number
 
 
@@ -253,20 +297,22 @@ def listing(caption, code):
     box.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#777777")),
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F4F4")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
-    cap = Paragraph(f"Listing {counters['listing']}. {caption}", ST["cap_fig"])
-    story.append(KeepTogether([Spacer(1, 3), box, cap]))
+    cap = Paragraph(f"Listing {counters['listing']}: {caption}", ST["cap_fig"])
+    story.append(KeepTogether([Spacer(1, 4), box, cap]))
     return counters["listing"]
 
 
-def figure(drawing, caption):
+def figure(drawing, caption, scale=1.55):
     counters["fig"] += 1
-    cap = Paragraph(f"Fig. {counters['fig']}. {caption}", ST["cap_fig"])
-    story.append(KeepTogether([Spacer(1, 4), drawing, cap]))
+    drawing.renderScale = scale
+    drawing.hAlign = "CENTER"
+    cap = Paragraph(f"Figure {counters['fig']}: {caption}", ST["cap_fig"])
+    story.append(KeepTogether([Spacer(1, 6), drawing, cap]))
     return counters["fig"]
 
 
@@ -317,7 +363,7 @@ def label(d, x, y, text, size=5.8, anchor="middle", bg=True, italic=False):
 
 
 def architecture_diagram():
-    W, H = COL_W, 250
+    W, H = DIAG_W, 250
     d = Drawing(W, H)
     # Docker network boundary
     d.add(Rect(3, 4, 183, 188, fillColor=None, strokeColor=GREY, strokeWidth=0.7,
@@ -355,7 +401,7 @@ def architecture_diagram():
 
 
 def sequence_diagram():
-    W, H = COL_W, 240
+    W, H = DIAG_W, 240
     d = Drawing(W, H)
     xs = {"B": 30, "G": 94, "A": 160, "M": 225}
     heads = {"B": ["Browser", "patient app"], "G": ["Google Identity", "Services"],
@@ -407,7 +453,7 @@ def owasp_chart():
         ("A09 Logging & Monitoring Failures", 1, 1),
         ("A10 Server-Side Request Forgery", 0, 0),
     ]
-    W, H = COL_W, 158
+    W, H = DIAG_W, 158
     d = Drawing(W, H)
     x0, unit, row, top = 131, 12.2, 12.6, H - 22
     dark, light = colors.HexColor("#4A4A4A"), colors.HexColor("#BDBDBD")
@@ -441,53 +487,78 @@ AUTHORS = [
     ("Aron Charles J.", "IT22203380"),
 ]
 
-# ---- Title block (full width, page 1) ------------------------------------
-title_block = [Paragraph(TITLE, ST["title"]), Spacer(1, 12)]
-author_cells = []
-for name, index in AUTHORS:
-    author_cells.append([
-        Paragraph(name, ST["author"]),
-        Paragraph("Faculty of Computing", ST["affil_i"]),
-        Paragraph("Sri Lanka Institute of Information Technology", ST["affil"]),
-        Paragraph("Malabe, Sri Lanka", ST["affil"]),
-        Paragraph(index, ST["affil"]),
-    ])
-author_table = Table([author_cells], colWidths=[FULL_W / 4] * 4)
-author_table.setStyle(TableStyle([
-    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ("LEFTPADDING", (0, 0), (-1, -1), 3),
-    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+# ---- Cover page -------------------------------------------------------------
+ORIGINAL_REPO = "https://github.com/RVNethmina/AppointmentBookingSystem"
+HARDENED_REPO = "https://github.com/RVNethmina/SE4030-secure-appointment-system"
+
+story.append(Spacer(1, 12 * mm))
+story.append(Paragraph("Sri Lanka Institute of Information Technology", ST["cover_big"]))
+story.append(Spacer(1, 3))
+story.append(Paragraph("Faculty of Computing", ST["cover_mid"]))
+story.append(Spacer(1, 22 * mm))
+story.append(Paragraph("SE4030 \u2013 Secure Software Development", ST["cover_mid"]))
+story.append(Paragraph("Assignment 1", ST["cover_mid"]))
+story.append(Spacer(1, 16 * mm))
+story.append(Paragraph(TITLE, ST["cover_title"]))
+story.append(Spacer(1, 8 * mm))
+story.append(Paragraph("Security Assessment Report", ST["cover_sub"]))
+story.append(Spacer(1, 24 * mm))
+members = Table(
+    [[Paragraph("Group Member", ST["cell_b"]), Paragraph("Registration Number", ST["cell_b"])]]
+    + [[Paragraph(name, ST["cell"]), Paragraph(index, ST["cell"])] for name, index in AUTHORS],
+    colWidths=[75 * mm, 50 * mm], hAlign="CENTER")
+members.setStyle(grid_style())
+members.setStyle(TableStyle([
+    ("FONTSIZE", (0, 0), (-1, -1), 11),
+    ("TOPPADDING", (0, 0), (-1, -1), 5),
+    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
 ]))
-title_block += [author_table, Spacer(1, 10)]
-TITLE_H = sum(f.wrap(FULL_W, PAGE_H)[1] for f in title_block) + 6
-story.extend(title_block)
-story.append(FrameBreak())
-story.append(NextPageTemplate("later"))
+story.append(members)
+story.append(Spacer(1, 22 * mm))
+story.append(Paragraph(f"Original repository: {ORIGINAL_REPO}", ST["cover_small"]))
+story.append(Paragraph(f"Hardened repository: {HARDENED_REPO}", ST["cover_small"]))
+story.append(Spacer(1, 10 * mm))
+story.append(Paragraph("September 2026", ST["cover_mid"]))
+story.append(NextPageTemplate("body"))
+story.append(PageBreak())
 
-# ---- Abstract ---------------------------------------------------------------
-story.append(Paragraph(
-    "<i>Abstract</i>\u2014This report presents the security assessment and hardening of "
-    "Prescripto, a MERN-stack (MongoDB, Express, React, Node.js) doctor appointment booking "
-    "system with patient, doctor and administrator roles. Using manual white-box code review, "
-    "software composition analysis, dynamic testing against a running instance and automated "
-    "regression tests, we identified twenty distinct vulnerabilities spanning nine of the OWASP "
-    "Top 10:2021 categories. They include committed production credentials, an administrator "
-    "token that embedded the administrator password, a four-character JWT signing secret, NoSQL "
-    "operator injection, account pre-hijacking through social login, a rate-limit bypass via "
-    "spoofed proxy headers and a race condition that allowed double booking. All twenty were "
-    "fixed in individually documented commits and verified by 41 automated security tests and a "
-    "23-check end-to-end test against a containerised deployment. We also implemented Google "
-    "Sign-In based on OpenID Connect, with server-side ID-token validation and a server-issued, "
-    "single-use nonce that prevents token replay. Finally, we added a continuous security "
-    "pipeline and a hardened Docker deployment, and we discuss residual risks and the "
-    "secure-development practices that would have prevented these flaws.",
-    ST["abstract"]))
-story.append(Paragraph(
-    "<i>Index Terms</i>\u2014secure software development, web application security, OWASP "
-    "Top 10, OpenID Connect, JSON Web Token, NoSQL injection, DevSecOps, container security.",
-    ST["abstract"]))
+# ---- Table of contents ------------------------------------------------------
+unnumbered("Table of Contents", toc=False)
+toc = TableOfContents()
+toc.levelStyles = [ST["toc0"], ST["toc1"], ST["toc2"]]
+toc.dotsMinLevel = 0
+story.append(toc)
+story.append(PageBreak())
 
-# ---- I. Introduction -------------------------------------------------------
+# ---- Executive summary ------------------------------------------------------
+unnumbered("Executive Summary")
+p("This report presents the security assessment and hardening of Prescripto, a MERN-stack "
+  "(MongoDB, Express, React, Node.js) doctor appointment booking system with patient, doctor "
+  "and administrator roles. Using manual white-box code review, software composition analysis, "
+  "dynamic testing against a running instance and automated regression tests, we identified "
+  "twenty distinct vulnerabilities spanning nine of the OWASP Top 10:2021 categories.")
+p("They include committed production credentials, an administrator token that embedded the "
+  "administrator password, a four-character JWT signing secret, NoSQL operator injection, "
+  "account pre-hijacking through social login, a rate-limit bypass via spoofed proxy headers "
+  "and a race condition that allowed double booking. All twenty were fixed in individually "
+  "documented commits. We also implemented Google Sign-In based on OpenID Connect, with "
+  "server-side ID-token validation and a server-issued, single-use nonce that prevents token "
+  "replay, added a continuous security pipeline and a hardened Docker deployment. Finally, the "
+  "report discusses the weaknesses that remain and the secure-development practices that would "
+  "have prevented these flaws.")
+p("<b>Key results:</b>")
+bullets([
+    "20 vulnerabilities found and fixed: 3 Critical, 6 High, 10 Medium and 1 Low.",
+    "Every fix is a separate commit in the hardened repository, referenced in Section 4.",
+    "Sign in with Google (OpenID Connect) with signature, audience, expiry, verified-email and "
+    "single-use nonce checks, and safe account linking.",
+    "41 automated security tests and a 23-check end-to-end test pass; npm audit reports no high "
+    "or critical advisories; CI (tests, npm audit, gitleaks, CodeQL) passes.",
+    "Nine remaining weaknesses are documented with reasons and recommendations in Section 5.",
+])
+story.append(PageBreak())
+
+# ---- 1. Introduction -------------------------------------------------------
 section("Introduction")
 p("Web applications that manage medical appointments process personal data such as names, "
   "telephone numbers, addresses and dates of birth, and they expose authentication and "
@@ -515,21 +586,21 @@ bullets([
     "an analysis of residual risks and of the development practices that would have prevented "
     "the vulnerabilities.",
 ])
-p("Section II describes the system, Section III the methodology and Section IV the "
-  "vulnerabilities and their fixes. Section V lists issues that were not fixed. Section VI "
-  "presents the OpenID Connect implementation, Section VII the verification, Section VIII the "
-  "secure deployment and Section IX the preventive practices. Sections X and XI give the "
+p("Section 2 describes the system, Section 3 the methodology and Section 4 the "
+  "vulnerabilities and their fixes. Section 5 lists issues that were not fixed. Section 6 "
+  "presents the OpenID Connect implementation, Section 7 the verification, Section 8 the "
+  "secure deployment and Section 9 the preventive practices. Sections 10 and 11 give the "
   "individual contributions and the conclusion.")
 
 # ---- II. System overview ------------------------------------------------------
 section("System Overview")
 subsection("Architecture")
-p("Prescripto consists of three deployable parts, summarised in Table I. The back end is an "
+p("Prescripto consists of three deployable parts, summarised in Table 1. The back end is an "
   "Express 4 REST API that uses Mongoose 8 models for users, doctors and appointments, JSON Web "
   f"Tokens (JWT) {cite('rfc7519')} for sessions, bcrypt for password hashing and Multer for "
   "multipart uploads, which are forwarded to Cloudinary. Two React 18 single-page applications "
   "built with Vite provide the patient interface and a combined administrator and doctor panel. "
-  "Figure 1 shows the hardened deployment described in Section VIII.")
+  "Figure 1 shows the hardened deployment described in Section 8.")
 subsection("Assets, Trust Boundaries and Threat Actors")
 p("The assets are patient personal data and appointment records, doctor and administrator "
   "accounts, the administrator's ability to create doctors and view all appointments, and the "
@@ -567,7 +638,7 @@ p("The assessment was performed in two rounds. Round 1 (July 2026) reviewed the 
   "Two of them (V12 and V13) had been missed or even introduced by round 1 fixes, which shows "
   "the value of reviewing security changes as critically as feature code.")
 subsection("Techniques and Tools")
-p("Table II lists the techniques used. Manual white-box review covered every controller, "
+p("Table 2 lists the techniques used. Manual white-box review covered every controller, "
   "middleware, route, model and configuration file of the API, and the authentication and "
   "session handling of both clients. The review was guided by the authentication, session "
   f"management, access control and validation requirements of OWASP ASVS {cite('asvs')}. "
@@ -595,7 +666,7 @@ p("Each vulnerability was rated Critical, High, Medium or Low from its exploitab
 
 # ---- IV. Vulnerabilities --------------------------------------------------------------
 section("Vulnerability Assessment and Remediation")
-p("Table III summarises the 20 vulnerabilities. Fig. 2 shows their distribution across the "
+p("Table 3 summarises the 20 vulnerabilities. Figure 2 shows their distribution across the "
   "OWASP Top 10:2021 categories: nine of the ten categories are represented, and "
   "identification and authentication failures (A07) dominate. The remainder of this section "
   "describes each vulnerability, its impact, the fix and how the fix was verified.")
@@ -635,8 +706,8 @@ runin("V1) Secrets committed to version control",
 runin("Remediation",
       f"All {c('.env')} files were removed from version control, {c('.gitignore')} now excludes "
       f"them, and {c('.env.example')} templates document the required variables without values. "
-      "The credentials that were exposed must be rotated by their owners (Section V), and a "
-      "gitleaks job now fails any push that contains a credential (Section VII).")
+      "The credentials that were exposed must be rotated by their owners (Section 5), and a "
+      "gitleaks job now fails any push that contains a credential (Section 7).")
 
 runin("V2) Forgeable administrator token",
       "The administrator login compared the submitted credentials with environment variables "
@@ -702,7 +773,7 @@ runin("Remediation",
       f"CORS is now restricted to the origins listed in {c('ALLOWED_ORIGINS')}, and other "
       f"origins receive HTTP 403. {c('helmet')} sets security headers, and a central error "
       "handler returns only generic messages. In the Docker deployment, nginx also sends a "
-      "strict Content Security Policy (Section VIII).")
+      "strict Content Security Policy (Section 8).")
 
 runin("V6) NoSQL operator injection and user enumeration",
       f"The login handlers passed the request body directly to {c('findOne({ email })')}. "
@@ -759,7 +830,7 @@ runin("Remediation",
       "Passwords must now contain at least eight characters including an uppercase letter, a "
       "lowercase letter, a digit and a symbol. NIST SP 800-63B favours longer passphrases "
       f"checked against lists of breached passwords over composition rules {cite('nist63b')}; "
-      "we list this as future work in Section V. The cancellation handler now handles missing "
+      "we list this as future work in Section 5. The cancellation handler now handles missing "
       "appointments safely.")
 
 runin("V10) Vulnerable third-party components",
@@ -770,7 +841,7 @@ runin("Remediation",
       "The dependencies were updated with npm audit fix, and bcrypt was upgraded from version "
       "5 to 6, which removes a vulnerable install-time dependency chain. A misspelled Cloudinary "
       "variable name that silently disabled the media configuration was also corrected. The "
-      "round 2 re-audit is discussed in Section IV-C.")
+      "round 2 re-audit is discussed in Section 4.3.")
 
 subsection("Round 2 Findings")
 runin("V11) Missing role enforcement and unpinned algorithm",
@@ -898,7 +969,7 @@ runin("V18) Replayable Google ID tokens",
       "browser history, a logging proxy, or a different login attempt) could be exchanged for "
       "an application session until it expired, typically after one hour. OpenID Connect Core "
       f"defines the nonce parameter to bind an ID token to a client session and prevent replay "
-      f"{cite('oidc')}. The fix is described in Section VI.")
+      f"{cite('oidc')}. The fix is described in Section 6.")
 
 runin("V19) Credentials and personal data in browser consoles",
       "Before submitting, the administrator panel printed every form field to the browser "
@@ -922,13 +993,13 @@ runin("Remediation",
       "axios's default text.")
 
 subsection("Dependency Re-assessment")
-p("Table IV compares the two dependency audits. Within two months of the round 1 fix, new "
+p("Table 4 compares the two dependency audits. Within two months of the round 1 fix, new "
   "advisories affected all three packages: denial-of-service issues in brace-expansion and qs, "
   "incorrect address classification in ip-address (which can defeat SSRF protections) in the "
   "back end, and a CSRF bypass in React Router in both clients. The back end also still used "
   "the deprecated 1.x series of Multer, whose upload denial-of-service fixes exist only in "
   "version 2. All issues were resolved and Multer was upgraded to 2.4. This result motivates "
-  "the weekly scheduled audit described in Section VII.")
+  "the weekly scheduled audit described in Section 7.")
 table("npm Audit Results (Advisories Before and After Each Fix)",
       ["Package", "Jul. 2026", "Sep. 2026 re-audit"], [
           ["backend", "17 \u2192 0", "5 (2 high) \u2192 0"],
@@ -938,7 +1009,7 @@ table("npm Audit Results (Advisories Before and After Each Fix)",
 
 # ---- V. Not fixed ------------------------------------------------------------------------
 section("Vulnerabilities Not Fixed")
-p("Table V lists the weaknesses that remain, with the reason each was not fixed and the "
+p("Table 5 lists the weaknesses that remain, with the reason each was not fixed and the "
   "recommended action. Most require infrastructure (an email provider, a shared cache, logging "
   "services) or architectural changes that go beyond the scope of this assignment.")
 table("Remaining Weaknesses", ["Issue", "Reason not fixed", "Recommendation"], [
@@ -947,7 +1018,7 @@ table("Remaining Weaknesses", ["Issue", "Reason not fixed", "Recommendation"], [
      "Rotate all keys; purge history with git filter-repo"],
     ["JWTs stored in localStorage",
      "httpOnly cookies need CSRF protection and CORS changes in three apps; partly mitigated by "
-     "the CSP (Section VIII)",
+     "the CSP (Section 8)",
      "httpOnly, SameSite cookies with CSRF tokens"],
     ["No logout endpoint or refresh-token rotation",
      "Account-wide revocation exists; per-token revocation needs a token store",
@@ -987,7 +1058,7 @@ p(f"OpenID Connect (OIDC) {cite('oidc')} adds an identity layer on top of OAuth 
 figure(sequence_diagram(),
        "OpenID Connect sign-in sequence with a server-issued, single-use nonce.")
 subsection("Sign-In Flow")
-p("Fig. 3 shows the message sequence. (1, 2) The patient application requests a nonce. The API "
+p("Figure 3 shows the message sequence. (1, 2) The patient application requests a nonce. The API "
   "generates a random 256-bit value and returns it together with a nonce token: a JWT with a "
   "unique identifier (jti), a ten-minute expiry, and a signature made with a key derived from "
   f"the application secret by HMAC-SHA-256 with the label {c('google-oidc-nonce')}. Because of "
@@ -1042,7 +1113,7 @@ p(f"To make the API testable, the Express application was separated ({c('app.js'
   f"start-up, which loads configuration, performs the secret checks and connects to the "
   f"database ({c('server.js')}). The suite uses Node's built-in test runner and supertest. It "
   "runs against the API in the same process with database calls replaced by stubs, so it needs "
-  "no database or external accounts. It contains 41 tests grouped as shown in Table VI.")
+  "no database or external accounts. It contains 41 tests grouped as shown in Table 6.")
 table("Verification Summary", ["Suite", "Content", "Result"], [
     ["npm test", "HTTP hardening (3), JWT and roles (11), start-up secret checks (2), injection and "
      "login oracles (2), uploads (5), input validation (4), OIDC (5), rate limiting (1), "
@@ -1071,7 +1142,7 @@ p("A GitHub Actions workflow runs on every push, on every pull request and weekl
 # ---- VIII. Deployment -----------------------------------------------------------------------------
 section("Secure Deployment")
 p("The system is packaged as three images plus MongoDB 7 and orchestrated with Docker Compose "
-  f"(Fig. 1), following the OWASP Docker security guidance {cite('docker_cs')}. The API image is "
+  f"(Figure 1), following the OWASP Docker security guidance {cite('docker_cs')}. The API image is "
   "based on Node.js 22 Alpine, contains only production dependencies and runs as a non-root "
   "user. Each client is built with Vite and served by an unprivileged nginx image, which also "
   "proxies API requests, so browsers talk to a single origin.")
@@ -1117,7 +1188,7 @@ bullets([
 
 # ---- X. Contributions -----------------------------------------------------------------------------
 section("Individual Contributions")
-p("Table VII lists each member's primary responsibilities.")
+p("Table 7 lists each member's primary responsibilities.")
 table("Individual Contributions", ["Member", "Area", "Work items"], [
     ["Nethmina W.P.R. (IT22253958)", "Authentication and session security",
      "V2, V3, V11, V15, V20; repository setup and CI pipeline"],
@@ -1145,8 +1216,8 @@ p("We assessed and hardened Prescripto, a MERN-stack doctor appointment booking 
   f"commit history are available in the project repository {cite('repo_hard')}.")
 
 # ---- References ---------------------------------------------------------------------------------------
-story.append(CondPageBreak(60))
-story.append(Paragraph(smallcaps("References"), ST["h1"]))
+story.append(PageBreak())
+unnumbered("References")
 for n, key in enumerate(CITE_ORDER, start=1):
     story.append(Paragraph(REFERENCES[key], ST["ref"], bulletText=f"[{n}]"))
 
@@ -1158,35 +1229,42 @@ if unused:
 # ==========================================================================
 # Document assembly
 # ==========================================================================
-def first_page(canvas, doc):
+class ReportDocTemplate(BaseDocTemplate):
+    def afterFlowable(self, flowable):
+        """Record headings for the table of contents and the PDF outline."""
+        level = getattr(flowable, "toc_level", None)
+        if level is None:
+            return
+        self.canv.bookmarkPage(flowable.toc_key)
+        self.canv.addOutlineEntry(flowable.toc_text, flowable.toc_key, level=level, closed=level > 0)
+        self.notify("TOCEntry", (level, flowable.toc_text, self.page, flowable.toc_key))
+
+
+def cover_page(canvas, doc):
     canvas.saveState()
-    y = BM + FOOTNOTE_H - 3
-    canvas.setLineWidth(0.4)
-    canvas.line(LM, y, LM + 40 * mm, y)
-    note = Paragraph(
-        "This report was prepared for the SE4030 Secure Software Development module, "
-        "Sri Lanka Institute of Information Technology, September 2026. Source code of the "
-        "hardened system: https://github.com/RVNethmina/SE4030-secure-appointment-system.",
-        ST["footnote"])
-    _, h = note.wrap(COL_W, FOOTNOTE_H)
-    note.drawOn(canvas, LM, y - 3 - h)
-    page_number(canvas, doc)
+    canvas.setStrokeColor(ACCENT)
+    canvas.setLineWidth(1.6)
+    canvas.rect(14 * mm, 14 * mm, PAGE_W - 28 * mm, PAGE_H - 28 * mm)
     canvas.restoreState()
 
 
-def page_number(canvas, doc):
-    canvas.setFont("TNR", 8)
-    canvas.drawCentredString(PAGE_W / 2, 11 * mm, str(doc.page))
-
-
-def later_pages(canvas, doc):
+def body_page(canvas, doc):
     canvas.saveState()
-    page_number(canvas, doc)
+    canvas.setFont("TNR", 9.5)
+    canvas.setFillColor(GREY)
+    canvas.setStrokeColor(RULE)
+    canvas.setLineWidth(0.5)
+    top = PAGE_H - 15 * mm
+    canvas.drawString(LM, top, "SE4030 Secure Software Development \u2013 Assignment 1")
+    canvas.drawRightString(PAGE_W - RM, top, "Security Assessment Report")
+    canvas.line(LM, top - 3, PAGE_W - RM, top - 3)
+    canvas.line(LM, 17 * mm, PAGE_W - RM, 17 * mm)
+    canvas.drawCentredString(PAGE_W / 2, 11.5 * mm, f"Page {doc.page}")
     canvas.restoreState()
 
 
 def build():
-    doc = BaseDocTemplate(
+    doc = ReportDocTemplate(
         OUTPUT, pagesize=A4, leftMargin=LM, rightMargin=RM, topMargin=TM, bottomMargin=BM,
         title=TITLE,
         author="Nethmina W.P.R.; Appuhami M.N.H.; Madurapperuma H.A.S.I.; Aron Charles J.",
@@ -1194,23 +1272,13 @@ def build():
         keywords="OWASP Top 10, OpenID Connect, JWT, NoSQL injection, DevSecOps, Docker",
         creator="docs/report/build_report.py",
     )
-    col_top = PAGE_H - TM - TITLE_H
-    first = PageTemplate(id="first", onPage=first_page, frames=[
-        Frame(LM, PAGE_H - TM - TITLE_H, FULL_W, TITLE_H, id="title",
-              leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0),
-        Frame(LM, BM + FOOTNOTE_H, COL_W, col_top - BM - FOOTNOTE_H, id="c1",
-              leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0),
-        Frame(LM + COL_W + GAP, BM, COL_W, col_top - BM, id="c2",
-              leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0),
+    frame = Frame(LM, BM, FULL_W, PAGE_H - TM - BM, id="body",
+                  leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
+    doc.addPageTemplates([
+        PageTemplate(id="cover", frames=[frame], onPage=cover_page),
+        PageTemplate(id="body", frames=[frame], onPage=body_page),
     ])
-    later = PageTemplate(id="later", onPage=later_pages, frames=[
-        Frame(LM, BM, COL_W, PAGE_H - TM - BM, id="l1",
-              leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0),
-        Frame(LM + COL_W + GAP, BM, COL_W, PAGE_H - TM - BM, id="l2",
-              leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0),
-    ])
-    doc.addPageTemplates([first, later])
-    doc.build(story)
+    doc.multiBuild(story)
     print(f"wrote {OUTPUT} ({doc.page} pages)")
 
 
